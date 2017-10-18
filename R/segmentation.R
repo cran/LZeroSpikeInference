@@ -1,5 +1,5 @@
 computeCost <- function(dat, optimalFits, ind, n, params) {
-  if (n == 1)
+  if (n == 1 && optimalFits$hardThreshold == FALSE)
         return(0)
 
     ## Extract matrix from optimalFits object + AR(1) decay parameter
@@ -8,7 +8,14 @@ computeCost <- function(dat, optimalFits, ind, n, params) {
         ## Calculate sumGamma2 = \sum_{t=a}^b \gamma^(2(t-a)) and regression coefficient Ca =
         ## \sum_{t=a}^b y_t \gamma^{t-a} / sumGamma2
         sumGamma2 <- (1 - params ^ (2 * n)) / (1 - params^2)
+
         Ca <- sufficientStats[ind, 3] / sumGamma2
+        if (optimalFits$hardThreshold == T) {
+          if (Ca < 0) {
+            Ca <- 0
+          }
+        }
+
         ## Calculate segment cost \sum_{t=a}^b y_t^2 / 2 - Ca \sum_{t=a}^b y_t \gamma^{t-a} + Ca^2 *
         ## sumGamma2
         segmentCost <- sufficientStats[ind, 2] - Ca * sufficientStats[ind, 3] +
@@ -87,14 +94,15 @@ addNewTimeOptimalFits <- function(optimalFits, indicesPtsKeep, t) {
     return(optimalFits)
 }
 
-computeSegmentation <- function(dat, params, penalty, type) {
+computeSegmentation <- function(dat, params, penalty, type, hardThreshold) {
     n <- length(dat)
-    table <- matrix(0, nrow = n + 1, ncol = 3)  ## rows index 0...t, cols index: t, F(t), \tau'_t
+    ## rows index 0...t, cols index: t, F(t), \tau'_t, # taus
+    table <- matrix(0, nrow = n + 1, ncol = 4)
     table[1, 2] <- -penalty
     R = c(0)  ## restricted set for mins
 
-    optimalFits <- list(type = type, activeRowSufficientStats = NULL)
-
+    optimalFits <- list(type = type, activeRowSufficientStats = NULL, hardThreshold = hardThreshold)
+    keepChgPts <- list()
     for (t in 1:n) {
         nR <- length(R)
         minimizers <- numeric(nR)  ## minimize over R
@@ -110,12 +118,17 @@ computeSegmentation <- function(dat, params, penalty, type) {
         table[t + 1, 3] <- R[which.min(minimizers)]
 
         indicesPtsKeep <- (minimizers < table[t + 1, 2])
+        # print(paste0("Cost F(r): ", table[t + 1, 2]))
+        # print(minimizers)
         R <- c(R[indicesPtsKeep], t)
+        keepChgPts[[t]] <- R
+
+        table[t + 1, 4] <- length(R)
 
         if (t < n)
             optimalFits <- addNewTimeOptimalFits(optimalFits, indicesPtsKeep, t)
     }
-    return(table)
+    return(list(table = table, keepChgPts = keepChgPts))
 }
 
 findChangePts <- function(vecChgPts) {
@@ -126,10 +139,11 @@ findChangePts <- function(vecChgPts) {
         changePts <- c(ind, changePts)
     }
     changePts <- changePts - 1
+
     return(changePts)
 }
 
-computeFittedValues <- function(dat, changePts, params, type) {
+computeFittedValues <- function(dat, changePts, params, type, hardThreshold = FALSE) {
     n <- length(dat)
     nSegments <- length(changePts)
     changePts <- c(changePts, n)
@@ -140,8 +154,18 @@ computeFittedValues <- function(dat, changePts, params, type) {
                 1)))
         }
         fit <- lm(dat ~ X - 1)
-        if (sum(fit$coefficients < 0) > 0) warning("Check model fit carefully. In some segments calcium concentration may not 'decay' as expected. Most observed datapoints should be positive.")
-        return(fit$fitted.values)
+
+        if (hardThreshold == T) {
+          return(pmax(fit$fitted.values, 0))
+        } else {
+
+          if (sum(fit$coefficients < 0) > 0) {
+          warning("Check model fit carefully. In some segments calcium concentration may not 'decay' as expected. Most observed datapoints should be positive.")
+        }
+          return(fit$fitted.values)
+        }
+
+
     }
 
     if (type == "intercept") {
@@ -154,7 +178,6 @@ computeFittedValues <- function(dat, changePts, params, type) {
         }
 
         fit <- lm(dat ~ X - 1)
-        # out <- fit$fitted.values - (rep(fit$coefficients[seq(2, (2 * nSegments), by = 2)], times = diff(changePts)))
         return(fit$fitted.values)
     }
 
@@ -168,6 +191,7 @@ computeFittedValues <- function(dat, changePts, params, type) {
 #' @param lambda tuning parameter lambda
 #' @param type type of model, must be one of AR(1) 'ar1', AR(1) + intercept 'intercept'.
 #' @param calcFittedValues TRUE to calculate fitted values.
+#' @param hardThreshold boolean specifying whether the calcium concentration must be non-negative (in the AR-1 problem)
 #'
 #' @return Returns a list with elements:
 #' @return \code{changePts} the set of changepoints
@@ -182,6 +206,9 @@ computeFittedValues <- function(dat, changePts, params, type) {
 #' minimize_{c1,...,cT} 0.5 sum_{t=1}^T ( y_t - c_t )^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1} }
 #' for the global optimum, where $y_t$ is the observed fluorescence at the tth
 #' timepoint.
+#'
+#' If hardThreshold = T then the additional constraint
+#' c_t >= 0 is added to the optimzation problem above.
 #'
 #' \strong{AR(1) with intercept:}
 #' minimize_{c1,...,cT,b1,...,bT} 0.5 sum_{t=1}^T (y_t - c_t - b_t)^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1}, b_t neq b_{t-1} }
@@ -226,15 +253,17 @@ computeFittedValues <- function(dat, changePts, params, type) {
 #'
 #' @export
 estimateSpikes <- function(dat, gam, lambda,
-                           type = "ar1", calcFittedValues = TRUE) {
+                           type = "ar1", calcFittedValues = TRUE, hardThreshold = FALSE) {
   checkValidType(type)
   checkValidParameters(gam, type)
   checkData(dat)
-  table <- computeSegmentation(dat, gam, lambda, type)
+  table <- computeSegmentation(dat, gam, lambda, type, hardThreshold)
+  keepChgPts <- table$keepChgPts
+  table <- table$table
   changePts <- findChangePts(table[, 3])
   spikes <- changePts[-1] + 1
   if (calcFittedValues) {
-    fittedValues <- computeFittedValues(dat, changePts, gam, type)
+    fittedValues <- computeFittedValues(dat, changePts, gam, type, hardThreshold)
   } else {
     fittedValues <- NULL
   }
@@ -242,7 +271,10 @@ estimateSpikes <- function(dat, gam, lambda,
               dat = dat, type = type, changePts = changePts,
               call = match.call(),
               gam = gam,
-              lambda = lambda)
+              lambda = lambda,
+              cost = table[(2:dim(table)[[1]]), 2],
+              nIntervals = table[(2:dim(table)[[1]]) ,4],
+              keepChgPts = keepChgPts)
   class(out) <- "estimatedSpikes"
   return(out)
 }

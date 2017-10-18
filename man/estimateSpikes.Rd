@@ -5,7 +5,8 @@
 \title{Estimate spike train, underlying calcium concentration, and changepoints based on fluorescence
 trace.}
 \usage{
-estimateSpikes(dat, gam, lambda, type = "ar1", calcFittedValues = TRUE)
+estimateSpikes(dat, gam, lambda, type = "ar1", calcFittedValues = TRUE,
+  hardThreshold = FALSE)
 }
 \arguments{
 \item{dat}{fluorescence data}
@@ -17,6 +18,8 @@ estimateSpikes(dat, gam, lambda, type = "ar1", calcFittedValues = TRUE)
 \item{type}{type of model, must be one of AR(1) 'ar1', AR(1) + intercept 'intercept'.}
 
 \item{calcFittedValues}{TRUE to calculate fitted values.}
+
+\item{hardThreshold}{boolean specifying whether the calcium concentration must be non-negative (in the AR-1 problem)}
 }
 \value{
 Returns a list with elements:
@@ -38,6 +41,9 @@ This algorithm solves the optimization problems
 minimize_{c1,...,cT} 0.5 sum_{t=1}^T ( y_t - c_t )^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1} }
 for the global optimum, where $y_t$ is the observed fluorescence at the tth
 timepoint.
+
+If hardThreshold = T then the additional constraint
+c_t >= 0 is added to the optimzation problem above.
 
 \strong{AR(1) with intercept:}
 minimize_{c1,...,cT,b1,...,bT} 0.5 sum_{t=1}^T (y_t - c_t - b_t)^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1}, b_t neq b_{t-1} }

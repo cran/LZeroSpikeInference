@@ -49,12 +49,12 @@ simulateAR1 <- function(n, gam, poisMean, sd, seed)
     if (i > 1)
       c[i] <- gam * c[i - 1] + eta[i]
     else
-      c[i] <- 1 + eta[i]
+      c[i] <- eta[i]
 
     f[i] <- c[i] + rnorm(n = 1, mean = 0, sd = sd)
   }
 
-  spikesOut <- unique(eta * (1:n))
+  spikesOut <- unique((eta > 0) * (1:n))
   out <- list(spikes = spikesOut[-1], fl = f, conc = c, call = match.call(),
               gam = gam, poisMean = poisMean, type = "ar1",
               sd = sd, seed = seed)

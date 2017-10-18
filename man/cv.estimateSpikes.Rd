@@ -5,7 +5,7 @@
 \title{Cross-validate and optimize model parameters}
 \usage{
 cv.estimateSpikes(dat, type = "ar1", gam = NULL, lambdas = NULL,
-  nLambdas = 10)
+  nLambdas = 10, hardThreshold = TRUE)
 }
 \arguments{
 \item{dat}{fluorescence trace (a vector)}
@@ -17,6 +17,8 @@ cv.estimateSpikes(dat, type = "ar1", gam = NULL, lambdas = NULL,
 \item{lambdas}{vector of tuning parameters to use in cross-validation}
 
 \item{nLambdas}{number of tuning parameters to estimate the model (grid of values is automatically produced)}
+
+\item{hardThreshold}{boolean specifying whether the calcium concentration must be non-negative (in the AR-1 problem)}
 }
 \value{
 A list of values corresponding to the 2-fold cross-validation:
@@ -48,6 +50,10 @@ We perform cross-validation over a one-dimensional grid of \eqn{\lambda} values.
 minimize_{c1,...,cT} 0.5 sum_{t=1}^T ( y_t - c_t )^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1} }
 for the global optimum, where $y_t$ is the observed fluorescence at the tth
 timepoint.
+
+If hardThreshold = T then the additional constraint
+c_t >= 0 is added to the optimzation problem above.
+
 
 \strong{AR(1) with intercept:}
 minimize_{c1,...,cT,b1,...,bT} 0.5 sum_{t=1}^T (y_t - c_t - b_t)^2 + lambda sum_{t=2}^T 1_{c_t neq gamma c_{t-1}, b_t neq b_{t-1} }
